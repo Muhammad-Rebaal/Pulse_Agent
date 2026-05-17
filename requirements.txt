@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langchain-anthropic
+google-cloud-aiplatform
+celery
+redis
+supabase
+pydantic[email]
+python-dotenv
+httpx
