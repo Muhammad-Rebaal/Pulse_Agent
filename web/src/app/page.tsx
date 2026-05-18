@@ -1,21 +1,69 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+type AgentStep = {
+  step_name: string;
+  duration_ms: number;
+  decision: string;
+};
+
+type AnalysisResult = {
+  run_id: string;
+  timestamp: string;
+  steps: AgentStep[];
+  ingest?: {
+    summary: string;
+    entities: string[];
+  };
+  insight?: {
+    key_insight: string;
+    relevance_score: number;
+  };
+  impact?: {
+    financial_impact: string;
+    urgency: "low" | "medium" | "high";
+  };
+  actions?: {
+    actions: {
+      title: string;
+      description: string;
+      simulate_available: boolean;
+    }[];
+  };
+};
+
+type SimulationState = {
+  whatsapp_draft: string;
+  before_state: Record<string, string>;
+  after_state: Record<string, string>;
+};
 
 export default function Home() {
   const [content, setContent] = useState("");
   const [profile, setProfile] = useState("freelancer");
+  const [contentType, setContentType] = useState<"text" | "url">("text");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState("");
   
-  const [simulationState, setSimulationState] = useState<any>(null);
+  const [simulationState, setSimulationState] = useState<SimulationState | null>(null);
+  const [simulationError, setSimulationError] = useState("");
   const [simulating, setSimulating] = useState(false);
+  const simulationRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (simulationState) {
+      simulationRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [simulationState]);
 
   const handleAnalyze = async () => {
     if (!content) return;
     setLoading(true);
     setResult(null);
     setSimulationState(null);
+    setError("");
 
     try {
       const res = await fetch("/api/analyze", {
@@ -23,15 +71,18 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content,
-          content_type: "text",
+          content_type: contentType,
           user_profile: profile,
         }),
       });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.detail || "Backend analysis failed");
+      }
       const data = await res.json();
       setResult(data);
     } catch (e) {
-      console.error(e);
-      alert("Error connecting to backend");
+      setError(e instanceof Error ? e.message : "Error connecting to backend");
     } finally {
       setLoading(false);
     }
@@ -39,6 +90,7 @@ export default function Home() {
 
   const handleSimulate = async (actionTitle: string) => {
     setSimulating(true);
+    setSimulationError("");
     try {
       const res = await fetch("/api/simulate", {
         method: "POST",
@@ -48,10 +100,14 @@ export default function Home() {
           user_profile: profile,
         }),
       });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.detail || "Simulation failed");
+      }
       const data = await res.json();
       setSimulationState(data);
     } catch (e) {
-      console.error(e);
+      setSimulationError(e instanceof Error ? e.message : "Simulation failed");
     } finally {
       setSimulating(false);
     }
@@ -66,20 +122,33 @@ export default function Home() {
           <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
             PulseAgent
           </h1>
-          <p className="text-slate-400">Autonomous multi-agent financial pipeline powered by Google Antigravity</p>
+          <p className="text-slate-400">Local multi-agent financial signal analyzer</p>
         </div>
 
         {/* Input Section */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl shadow-black/50 space-y-6">
           <div className="space-y-4">
-            <div>
+            <div className="grid md:grid-cols-[180px_1fr] gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Content Type</label>
+                <select
+                  value={contentType}
+                  onChange={(e) => setContentType(e.target.value as "text" | "url")}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 appearance-none"
+                >
+                  <option value="text">Text</option>
+                  <option value="url">URL</option>
+                </select>
+              </div>
+              <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">Paste News or Content</label>
               <textarea 
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl p-4 text-slate-300 placeholder:text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-                placeholder="E.g., The central bank has unexpectedly raised interest rates by 50 basis points..."
+                placeholder={contentType === "url" ? "https://example.com/news-story" : "E.g., The central bank has unexpectedly raised interest rates by 50 basis points..."}
               />
+              </div>
             </div>
             
             <div className="flex gap-4 items-end">
@@ -101,9 +170,14 @@ export default function Home() {
                 disabled={loading || !content}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white px-8 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95"
               >
-                {loading ? "Agents analyzing..." : "Run Antigravity Pipeline"}
+                {loading ? "Agents analyzing..." : "Run Financial Pipeline"}
               </button>
             </div>
+            {error && (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+                {error}
+              </div>
+            )}
           </div>
         </div>
 
@@ -113,9 +187,14 @@ export default function Home() {
             
             {/* Agent Trace Log */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-mono text-indigo-400 mb-4 uppercase tracking-wider">Antigravity Execution Trace</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="text-sm font-mono text-indigo-400 uppercase tracking-wider">Analysis Execution Trace</h3>
+                <div className="text-xs font-mono text-slate-500">
+                  {new Date(result.timestamp).toLocaleString()} · {String(result.run_id).slice(0, 8)}
+                </div>
+              </div>
               <div className="space-y-3">
-                {result.steps.map((step: any, idx: number) => (
+                {result.steps.map((step, idx) => (
                   <div key={idx} className="flex items-center gap-4 text-sm font-mono bg-slate-950 p-3 rounded-lg border border-slate-800/50">
                     <span className="text-emerald-400">[{step.duration_ms}ms]</span>
                     <span className="text-cyan-300 font-bold w-32">{step.step_name}</span>
@@ -124,6 +203,20 @@ export default function Home() {
                 ))}
               </div>
             </div>
+
+            {result.ingest && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                <div className="text-xs font-bold text-cyan-400 uppercase tracking-widest mb-2">Source Summary</div>
+                <p className="text-slate-300 leading-relaxed mb-4">{result.ingest.summary}</p>
+                <div className="flex flex-wrap gap-2">
+                  {result.ingest.entities.map((entity: string) => (
+                    <span key={entity} className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-300">
+                      {entity}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid md:grid-cols-2 gap-6">
               {/* Insight & Impact */}
@@ -158,7 +251,7 @@ export default function Home() {
               {result.actions && (
                 <div className="space-y-4">
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Recommended Actions</div>
-                  {result.actions.actions.map((action: any, i: number) => (
+                  {result.actions.actions.map((action, i) => (
                     <div key={i} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-indigo-500/50 transition-colors group">
                       <h4 className="text-white font-medium mb-1 group-hover:text-indigo-400 transition-colors">{action.title}</h4>
                       <p className="text-sm text-slate-400 mb-4">{action.description}</p>
@@ -174,13 +267,18 @@ export default function Home() {
                       )}
                     </div>
                   ))}
+                  {simulationError && (
+                    <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+                      {simulationError}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Simulation Results */}
             {simulationState && (
-              <div className="mt-12 bg-slate-900 border border-emerald-500/30 rounded-2xl p-8 shadow-[0_0_40px_-15px_rgba(16,185,129,0.2)] animate-in slide-in-from-bottom-8 duration-700">
+              <div ref={simulationRef} className="mt-12 bg-slate-900 border border-emerald-500/30 rounded-2xl p-8 shadow-[0_0_40px_-15px_rgba(16,185,129,0.2)] animate-in slide-in-from-bottom-8 duration-700">
                 <h3 className="text-xl font-bold text-emerald-400 mb-8 flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></div>
                   Simulation Result
